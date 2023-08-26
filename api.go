@@ -17,6 +17,7 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -24,7 +25,6 @@ import (
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 func uuidv4() (string, error) {
@@ -145,8 +145,19 @@ func statusHandler(w http.ResponseWriter, r *http.Request, serial string) {
 		status = "OK"
 	}
 
-	// Deal with address/port in ycshell.
-	split := strings.Split(viper.GetString("listen"), ":")
+	// Get listen address from context
+	var host string
+	var port string
+
+	rawAddr := r.Context().Value(http.LocalAddrContextKey)
+	switch addr := rawAddr.(type) {
+	case *net.TCPAddr:
+		host, port, _ = net.SplitHostPort(addr.String())
+	case *net.UnixAddr:
+		// Nothing to do here
+		host = addr.Name
+		port = "0"
+	}
 
 	fmt.Fprintf(w, "status=%s\n", status)
 	if serial == "" {
@@ -156,8 +167,8 @@ func statusHandler(w http.ResponseWriter, r *http.Request, serial string) {
 	}
 	fmt.Fprintf(w, "version=%s\n", Version.String())
 	fmt.Fprintf(w, "pid=%d\n", os.Getpid())
-	fmt.Fprintf(w, "address=%s\n", split[0])
-	fmt.Fprintf(w, "port=%s\n", split[1])
+	fmt.Fprintf(w, "address=%s\n", host)
+	fmt.Fprintf(w, "port=%s\n", port)
 }
 
 func apiHandler(w http.ResponseWriter, r *http.Request, serial string) {

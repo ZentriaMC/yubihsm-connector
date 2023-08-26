@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -35,6 +36,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/coreos/go-systemd/v22/activation"
 )
 
 var (
@@ -50,7 +53,8 @@ type program struct {
 func (p *program) Start(s service.Service) error {
 	addr := viper.GetString("listen")
 	serial, _ := ensureSerial(viper.GetString("serial"))           // already validated by Cobra
-	p.srv = &http.Server{Addr: addr, ReadTimeout: 5 * time.Second} // Hard coded 5s timeout to prevent resource starvation
+
+	p.srv = &http.Server{ReadTimeout: 5 * time.Second} // Hard coded 5s timeout to prevent resource starvation
 
 	http.HandleFunc("/connector/status", middlewareWrapper(func(w http.ResponseWriter, r *http.Request) {
 		statusHandler(w, r, serial)
@@ -76,17 +80,39 @@ func (p *program) Start(s service.Service) error {
 		"TLS":    tls,
 	}).Debug("takeoff")
 
-	go func(tls bool) {
+	var listener net.Listener
+	if addr == "fd://" {
+		listeners, err := activation.Listeners()
+		if err != nil {
+			return fmt.Errorf("Failed to find passed sockets: %w", err)
+		}
+
+		if len(listeners) == 0 {
+			return fmt.Errorf("No valid passed sockets available")
+		}
+
+		listener = listeners[0]
+		if listener == nil {
+			return fmt.Errorf("First listener was not a valid listener (UDP is not supported)")
+		}
+	} else {
+		var err error
+		if listener, err = net.Listen("tcp", addr); err != nil {
+			return fmt.Errorf("Failed to listen: %w", err)
+		}
+	}
+
+	go func(listener net.Listener, tls bool) {
 		if tls {
-			if err := p.srv.ListenAndServeTLS(cert, key); err != nil {
-				log.Printf("ListenAndServeTLS failure: %s", err)
+			if err := p.srv.ServeTLS(listener, cert, key); err != nil {
+				log.Printf("ServeTLS failure: %s", err)
 			}
 		} else {
-			if err := p.srv.ListenAndServe(); err != nil {
-				log.Printf("ListenAndServe failure: %s", err)
+			if err := p.srv.Serve(listener); err != nil {
+				log.Printf("Serve failure: %s", err)
 			}
 		}
-	}(tls)
+	}(listener, tls)
 
 	return nil
 }
