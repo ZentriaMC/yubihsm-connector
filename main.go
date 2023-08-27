@@ -38,12 +38,15 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/coreos/go-systemd/v22/activation"
+	"github.com/pires/go-proxyproto"
 )
 
 var (
 	// Host header allowlisting
 	hostHeaderAllowlisting bool
 	hostHeaderAllowlist    = []string{"localhost", "localhost.", "127.0.0.1", "[::1]"}
+
+	proxyProtocolAllowlist = []string{""}
 )
 
 type program struct {
@@ -52,7 +55,7 @@ type program struct {
 
 func (p *program) Start(s service.Service) error {
 	addr := viper.GetString("listen")
-	serial, _ := ensureSerial(viper.GetString("serial"))           // already validated by Cobra
+	serial, _ := ensureSerial(viper.GetString("serial")) // already validated by Cobra
 
 	p.srv = &http.Server{ReadTimeout: 5 * time.Second} // Hard coded 5s timeout to prevent resource starvation
 
@@ -74,10 +77,12 @@ func (p *program) Start(s service.Service) error {
 		tls = true
 	}
 
+	proxyProtocol := viper.GetBool("proxy-protocol")
 	log.WithFields(log.Fields{
-		"pid":    os.Getpid(),
-		"listen": addr,
-		"TLS":    tls,
+		"pid":            os.Getpid(),
+		"listen":         addr,
+		"TLS":            tls,
+		"proxy-protocol": proxyProtocol,
 	}).Debug("takeoff")
 
 	var listener net.Listener
@@ -99,6 +104,26 @@ func (p *program) Start(s service.Service) error {
 		var err error
 		if listener, err = net.Listen("tcp", addr); err != nil {
 			return fmt.Errorf("Failed to listen: %w", err)
+		}
+	}
+
+	if proxyProtocol {
+		var policy proxyproto.PolicyFunc
+		if len(proxyProtocolAllowlist) > 0 {
+			var err error
+			if policy, err = proxyproto.StrictWhiteListPolicy(proxyProtocolAllowlist); err != nil {
+				return fmt.Errorf("Failed to set up PROXY protocol whitelist policy: %w", err)
+			}
+		} else {
+			policy = func(upstream net.Addr) (policy proxyproto.Policy, err error) {
+				return proxyproto.REQUIRE, nil
+			}
+		}
+
+		listener = &proxyproto.Listener{
+			Listener:          listener,
+			Policy:            policy,
+			ReadHeaderTimeout: 5 * time.Second,
 		}
 	}
 
@@ -236,6 +261,10 @@ func main() {
 	viper.BindPFlag("host-allowlist", rootCmd.PersistentFlags().Lookup("host-header-allowlist"))
 	rootCmd.PersistentFlags().Uint32P("timeout", "t", 0, "(DEPRECATED) USB operation timeout in milliseconds (default 0, never timeout)")
 	viper.BindPFlag("timeout", rootCmd.PersistentFlags().Lookup("timeout"))
+	rootCmd.PersistentFlags().BoolP("proxy-protocol", "", false, "enable HAProxy PROXY protocol support")
+	viper.BindPFlag("proxy-protocol", rootCmd.PersistentFlags().Lookup("proxy-protocol"))
+	rootCmd.PersistentFlags().StringSliceVar(&proxyProtocolAllowlist, "proxy-protocol-allowlist", proxyProtocolAllowlist, "PROXY protocol host allowlist. NOTE: Does not work with unix socket listener")
+	viper.BindPFlag("proxy-protocol-allowlist", rootCmd.PersistentFlags().Lookup("proxy-protocol-allowlist"))
 
 	configCmd := &cobra.Command{
 		Use: "config",
