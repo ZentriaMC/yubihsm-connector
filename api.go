@@ -19,7 +19,6 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -166,7 +165,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request, serial string) {
 		fmt.Fprintf(w, "serial=%s\n", serial)
 	}
 	fmt.Fprintf(w, "version=%s\n", Version.String())
-	fmt.Fprintf(w, "pid=%d\n", os.Getpid())
+	fmt.Fprintf(w, "pid=%d\n", 1)
 	fmt.Fprintf(w, "address=%s\n", host)
 	fmt.Fprintf(w, "port=%s\n", port)
 }
