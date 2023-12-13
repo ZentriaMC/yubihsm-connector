@@ -10,3 +10,5 @@ resources/win-installer/Debug/
 resources/win-installer/Release/
 resources/win-installer/.vs
 resources/win-installer/installer/obj/
+/result
+/result-*
