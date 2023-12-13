@@ -1,5 +1,7 @@
 # yubihsm-connector
 
+PREFIX ?= /usr/local
+
 MAKEFLAGS += -s
 MAKEFLAGS += --no-builtin-rules
 .SUFFIXES:
@@ -15,7 +17,7 @@ build: gen
 rebuild: clean build
 
 install: build
-	install bin/yubihsm-connector /usr/local/bin
+	install bin/yubihsm-connector $(PREFIX)/bin
 
 cert:
 	@./tools/generate-certificate
